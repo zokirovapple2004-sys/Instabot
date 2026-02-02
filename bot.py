@@ -5,7 +5,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
 
 # Telegram bot tokenini Environment Variable orqali olamiz
-TOKEN = os.getenv("8521244382:AAGgiPYDyurs5XFPZu85rYUnOG_m242JqBI")
+TOKEN = os.getenv("BOT_TOKEN")
 
 async def download_video(url):
     ydl_opts = {
