@@ -1,43 +1,73 @@
 import os
 import asyncio
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
-import yt_dlp
+import threading
+from flask import Flask
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from yt_dlp import YoutubeDL
 
-# Telegram bot tokenini Environment Variable orqali olamiz
-TOKEN = os.getenv("BOT_TOKEN")
+# 1. Flask server (Render botni o'chirib qo'ymasligi uchun)
+app = Flask(__name__)
 
-async def download_video(url):
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=10000)
+
+# 2. Bot sozlamalari
+TOKEN = "8090453345:AAF-kxU8eej7k6BPXjS5q3uGBAvnfWPJyng"
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+
+# 3. Video yuklash funksiyasi
+def download_video(url):
     ydl_opts = {
         'format': 'best',
-        'outtmpl': 'video.%(ext)s',
+        'outtmpl': 'downloads/%(id)s.%(ext)s',
+        'noplaylist': True,
         'quiet': True,
-        'no_warnings': True,
+        # Instagram va TikTok uchun ba'zan kerak bo'ladigan user-agent
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text
-    if "instagram.com" in url or "tiktok.com" in url:
-        msg = await update.message.reply_text("Yuklanmoqda... 🚀")
-        try:
-            file_path = await asyncio.to_thread(download_video, url)
-            with open(file_path, 'rb') as video:
-                await update.message.reply_video(video)
-            os.remove(file_path) # Faylni o'chiramiz
-            await msg.delete()
-        except Exception as e:
-            await update.message.reply_text(f"Xatolik yuz berdi: {e}")
-    else:
-        await update.message.reply_text("Iltimos, faqat Instagram yoki TikTok linkini yuboring!")
+@dp.message(Command("start"))
+async def start_cmd(message: types.Message):
+    await message.answer("Assalomu alaykum! TikTok yoki Instagram havolasini yuboring, men uni yuklab beraman.")
 
-def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot ishga tushdi...")
-    app.run_polling()
+@dp.message(F.text.contains("instagram.com") | F.text.contains("tiktok.com"))
+async def handle_video(message: types.Message):
+    status_msg = await message.answer("⏳ Video yuklanmoqda, kuting...")
+    
+    try:
+        # Faylni yuklab olish (alohida oqimda)
+        file_path = await asyncio.to_thread(download_video, message.text)
+        
+        # Videoni yuborish
+        video_file = types.FSInputFile(file_path)
+        await message.answer_video(video_file, caption="✅ Video yuklab olindi!")
+        
+        # Serverni tozalash
+        os.remove(file_path)
+        await status_msg.delete()
+        
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Xatolik yuz berdi. Havola to'g'riligini tekshiring yoki bot keyinroq urinib ko'ring.\n\nTexnik xato: {str(e)[:50]}")
 
-if __name__ == '__main__':
-    main()
+async def main():
+    # Folder yaratish
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+        
+    # Flaskni alohida oqimda ishga tushirish
+    threading.Thread(target=run_flask, daemon=True).start()
+    
+    # Botni ishga tushirish
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
